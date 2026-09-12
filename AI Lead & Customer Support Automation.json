@@ -1,0 +1,5492 @@
+{
+  "name": "AI Lead & Customer Support Automation - DEV",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-support-intake-dev",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "813dc708-0847-4460-b3f5-5be701aa9682",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        304
+      ],
+      "webhookId": "0c5ab365-4145-4768-94eb-aa56c69ae45a"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $json.body ?? $json;\n\nfunction trimStr(v) {\n  if (v === null || v === undefined) return '';\n  return String(v).trim();\n}\n\nconst name = trimStr(body.name);\nconst email = trimStr(body.email).toLowerCase();\nconst message = trimStr(body.message);\nconst phone = trimStr(body.phone);\nconst company = trimStr(body.company);\nconst job_title = trimStr(body.job_title ?? body.jobTitle);\nconst budget = trimStr(body.budget);\nconst source = trimStr(body.source) || 'website';\n\nconst validation_errors = [];\nif (!name) validation_errors.push('name is required');\nif (!email) {\n  validation_errors.push('email is required');\n} else if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {\n  validation_errors.push('email format is invalid');\n}\nif (!message) validation_errors.push('message is required');\n\nconst valid = validation_errors.length === 0;\nconst request_id = 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);\nconst received_at = new Date().toISOString();\n\nreturn {\n  json: {\n    request_id,\n    source,\n    name,\n    email,\n    phone,\n    company,\n    job_title,\n    budget,\n    message,\n    received_at,\n    valid,\n    validation_errors\n  }\n};"
+      },
+      "id": "d31bd6a9-d2e6-40e5-9d61-482c974f4a77",
+      "name": "Normalize and Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "d7f236fe-08c3-44b7-89da-cd6adb4019bd",
+      "name": "Check Valid Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        848,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "9fc51b62-f89c-4553-9ae9-a8398e429f0f",
+      "name": "Respond Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1152,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## AI Lead & Customer Support Automation - DEV (Phases 1-5.1 complete)\nWebhook intake -> validation -> dedup -> Groq intent classification -> sales/support/general/unknown routing.\nSales: Groq qualification (plain JSON + defensive parsing) -> HighLevel CRM (contact/opportunity) -> idempotent follow-up email -> idempotent HIGH-lead sales alert. CRM failures degrade gracefully via Handle CRM Failure -> automation_event_log -> Respond Lead Review Required.\nSupport: Gemini embeddings -> Pinecone retrieval -> Groq RAG generation (plain JSON) -> deterministic grounding gate (score>=0.75, confidence>=0.7, grounded, evidence) -> idempotent auto-response or idempotent human handoff.\nOperational logging: automation_event_log records stage-level success/failure across every phase. Retry: native retryOnFail kept only on idempotent reads/stateless AI calls, removed on all non-idempotent writes (creates/sends/inserts).\nSafe to test manually; NOT published or activated.",
+        "height": 420,
+        "width": 1200,
+        "color": 5
+      },
+      "id": "1bc6f2f7-8248-4a09-88bd-23f7f0b3493a",
+      "name": "Sticky Note 54d4ae97",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        192,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function djb2Hash(str) {\n  let hash = 5381;\n  for (let i = 0; i < str.length; i++) {\n    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;\n  }\n  return hash.toString(16).padStart(8, '0');\n}\n\nconst normalizedEmail = String($json.email || '').trim().toLowerCase();\nconst normalizedMessage = String($json.message || '').trim().toLowerCase().replace(/\\s+/g, ' ');\nconst basis = normalizedEmail + '|' + normalizedMessage;\nconst idempotency_key = djb2Hash(basis) + '_' + basis.length;\n\nreturn {\n  json: {\n    ...$json,\n    idempotency_key: idempotency_key\n  }\n};"
+      },
+      "id": "48e32a75-2af5-498b-9cd3-18247d53916c",
+      "name": "Compute Idempotency Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "lead_support_intake_dev",
+          "mode": "id",
+          "value": "mCCDA83WWLNVGPtL"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "message_hash",
+              "keyValue": "={{ $json.idempotency_key }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "c0f93d76-a1aa-4312-8c00-0c8042c8606c",
+      "name": "Check Duplicate",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        624
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "da55c8db-0b58-44f4-ba59-73fc033a8a86",
+      "name": "Has Duplicate Record",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1744,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const current = $('Compute Idempotency Key').item.json;\n\nconst duplicate_record = {\n  original_request_id: $json.request_id,\n  email: $json.email,\n  message_hash: $json.message_hash,\n  source: $json.source,\n  first_seen_at: $json.first_seen_at,\n  last_seen_at: $json.last_seen_at\n};\n\nreturn {\n  json: {\n    status: 'duplicate',\n    request_id: current.request_id,\n    message: 'This request has already been received.',\n    duplicate: true,\n    idempotency_key: current.idempotency_key,\n    duplicate_record: duplicate_record\n  }\n};"
+      },
+      "id": "d2f4062e-ea72-4ea9-9a95-e89e07c63ab2",
+      "name": "Build Duplicate Response Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2048,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "42f601f7-48e0-40ae-b77c-3232ca4bf34b",
+      "name": "Respond Duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2352,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const current = $('Compute Idempotency Key').item.json;\n\nreturn {\n  json: {\n    ...current,\n    duplicate: false,\n    duplicate_record: null\n  }\n};"
+      },
+      "id": "7c8f7d2d-2e9f-48f1-a657-766d6f7fc2b9",
+      "name": "Mark Not Duplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2048,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "lead_support_intake_dev",
+          "mode": "id",
+          "value": "mCCDA83WWLNVGPtL"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $json.email }}",
+            "first_seen_at": "={{ $json.received_at }}",
+            "last_seen_at": "={{ $json.received_at }}",
+            "message_hash": "={{ $json.idempotency_key }}",
+            "request_id": "={{ $json.request_id }}",
+            "source": "={{ $json.source }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "message_hash",
+              "displayName": "message_hash",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "first_seen_at",
+              "displayName": "first_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_seen_at",
+              "displayName": "last_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "ce7b9c33-5f50-4600-98de-5cc1a5857b0e",
+      "name": "Record New Intake",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2352,
+        768
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {
+          "maxTokensToSample": 512,
+          "temperature": 0.1
+        }
+      },
+      "id": "2ef86cfe-31a5-46ad-9ca3-7a21fe259127",
+      "name": "Groq Classification Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        928
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "groqApi": {
+          "id": "U0EYV8CahGXlAfpw",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{ \"intent\": \"sales\", \"confidence\": 0.94, \"summary\": \"Customer wants pricing information for automation\", \"requires_human\": false }"
+      },
+      "id": "f4e4e5d2-bcf4-47cb-80fa-dbcacfa511a8",
+      "name": "Classification Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2800,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Classify the following customer request.\n\nName: {{ $('Mark Not Duplicate').item.json.name }}\nCompany: {{ $('Mark Not Duplicate').item.json.company }}\nJob Title: {{ $('Mark Not Duplicate').item.json.job_title }}\nBudget: {{ $('Mark Not Duplicate').item.json.budget }}\nMessage: {{ $('Mark Not Duplicate').item.json.message }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are an intent classification assistant for a lead and customer support intake system. Classify the message into exactly one of: sales, support, general, unknown. Use sales for pricing, purchasing, demos, or new business inquiries. Use support for account access issues, bugs, technical problems, or existing-customer help requests. Use general for informational questions unrelated to buying or a problem, for example business hours or company info. Use unknown only when the message is too vague or ambiguous to confidently classify. Base confidence on how clearly the message matches the chosen category: use a low confidence below 0.75 for vague or short messages. Always return valid JSON matching the required schema, with no extra text.",
+          "maxIterations": 3
+        }
+      },
+      "id": "0ef5b1fa-7fb6-49f2-a630-814ccb7b5897",
+      "name": "AI Intent Classification",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        2640,
+        768
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const parsed = ($json.output && typeof $json.output === 'object') ? $json.output : {};\nconst original = $('Mark Not Duplicate').item.json;\n\nconst allowedIntents = ['sales', 'support', 'general', 'unknown'];\nlet intent = typeof parsed.intent === 'string' ? parsed.intent.toLowerCase().trim() : 'unknown';\nif (!allowedIntents.includes(intent)) intent = 'unknown';\n\nlet confidence = typeof parsed.confidence === 'number' ? parsed.confidence : parseFloat(parsed.confidence);\nif (typeof confidence !== 'number' || Number.isNaN(confidence) || confidence < 0 || confidence > 1) {\n  confidence = 0;\n}\n\nlet summary = (typeof parsed.summary === 'string' && parsed.summary.trim()) ? parsed.summary.trim() : 'No summary provided.';\n\nconst requires_human = intent === 'unknown' || confidence < 0.75;\n\nreturn {\n  json: {\n    request_id: original.request_id,\n    email: original.email,\n    duplicate: original.duplicate,\n    idempotency_key: original.idempotency_key,\n    intent: intent,\n    confidence: confidence,\n    summary: summary,\n    requires_human: requires_human,\n    classification_status: 'ok'\n  }\n};"
+      },
+      "id": "82c3ec66-0371-4213-8b20-d4b8bc188401",
+      "name": "Validate Classification Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2944,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Mark Not Duplicate').item.json;\n\nreturn {\n  json: {\n    request_id: original.request_id,\n    email: original.email,\n    duplicate: original.duplicate,\n    idempotency_key: original.idempotency_key,\n    intent: 'unknown',\n    confidence: 0,\n    summary: 'AI classification failed or returned invalid output; routed to human review.',\n    requires_human: true,\n    classification_status: 'error'\n  }\n};"
+      },
+      "id": "0cddad51-a725-444e-9bf7-158beace319b",
+      "name": "Handle Classification Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2944,
+        1024
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "sales"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "sales"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "support"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "support"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "general"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "general"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "unknown"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "unknown"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unhandled"
+        }
+      },
+      "id": "d6d6335f-5dc1-4170-b5f4-9b83e53e49c7",
+      "name": "Route by Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        3248,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": $json.resolution_path === 'auto_response' ? 'answered' : 'human_review_required', \"answer\": $json.answer, \"grounded\": $json.grounded, \"confidence\": $json.confidence, \"resolution_path\": $json.resolution_path, \"requires_human\": $json.requires_human, \"support_response_sent\": $json.support_response_sent, \"support_handoff_alert_sent\": $json.support_handoff_alert_sent, \"request_id\": $json.request_id } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "336b4689-11ce-439a-8ea6-9f720304bd88",
+      "name": "Respond Support",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3552,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"classified\", \"intent\": $json.intent, \"confidence\": $json.confidence, \"summary\": $json.summary, \"requires_human\": $json.requires_human, \"request_id\": $json.request_id } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "18bc1fc0-1300-47f5-8cd2-e24882db7b94",
+      "name": "Respond General",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3552,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"human_review_required\", \"intent\": $json.intent, \"confidence\": $json.confidence, \"summary\": $json.summary, \"requires_human\": $json.requires_human, \"request_id\": $json.request_id } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "7fc5b0ea-2246-4a94-a0ca-2359f5dd0577",
+      "name": "Respond Unknown",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3552,
+        992
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Lead:\nName: {{ $('Mark Not Duplicate').item.json.name }}\nCompany: {{ $('Mark Not Duplicate').item.json.company }}\nJob Title: {{ $('Mark Not Duplicate').item.json.job_title }}\nBudget: {{ $('Mark Not Duplicate').item.json.budget }}\nMessage: {{ $('Mark Not Duplicate').item.json.message }}\nDetected Intent: {{ $('Validate Classification Output').item.json.intent }}\nClassification Summary: {{ $('Validate Classification Output').item.json.summary }}\n\nReturn the JSON object now.",
+        "options": {
+          "systemMessage": "Extract exactly 5 boolean signals from the lead message, plus 3 short fields. Output ONLY a single JSON object, no markdown, no code fences, no explanation, nothing before or after it.\n\nSignals (true/false):\n- clear_business_need: states a clear business/commercial need\n- specific_automation_need: names a specific automation need, not just general interest\n- urgency_or_timeline: mentions a start date, ASAP, this month, or a deadline\n- pricing_demo_or_call_request: asks for pricing, a demo, a call, or a meeting\n- strong_purchase_intent: shows active evaluation, an approved project, or readiness to buy (not just curiosity)\n\nAlso return:\n- lead_intent: one short word/phrase (e.g. purchase, evaluation, exploring, information, research)\n- summary: one short sentence\n- recommended_action: one short sentence\n\nDo NOT compute a score or category. Do NOT include decision_maker, budget_provided, budget_value, or high_budget - those are computed separately.\n\nRequired JSON keys, exactly: clear_business_need, specific_automation_need, urgency_or_timeline, pricing_demo_or_call_request, strong_purchase_intent, lead_intent, summary, recommended_action.",
+          "maxIterations": 3
+        }
+      },
+      "id": "85a67430-95b2-42f4-90d2-58998c6a1f15",
+      "name": "AI Lead Qualification",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        3552,
+        176
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {
+          "maxTokensToSample": 1024,
+          "temperature": 0.2
+        }
+      },
+      "id": "60caf3ce-aff9-408e-a33e-cd86f034bc80",
+      "name": "Groq Lead Qualification Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        3552,
+        528
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "groqApi": {
+          "id": "U0EYV8CahGXlAfpw",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Mark Not Duplicate').item.json;\nconst classification = $('Validate Classification Output').item.json;\n\nfunction extractJson(raw) {\n  if (raw === null || raw === undefined) return null;\n  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;\n  if (typeof raw !== 'string') return null;\n  let text = raw.trim();\n  const fenceMatch = text.match(/^```(?:json)?\\s*([\\s\\S]*?)\\s*```$/i);\n  if (fenceMatch) {\n    text = fenceMatch[1].trim();\n  }\n  if (!(text.startsWith('{') && text.endsWith('}'))) {\n    const braceMatch = text.match(/\\{[\\s\\S]*\\}/);\n    if (braceMatch) {\n      text = braceMatch[0];\n    }\n  }\n  try {\n    const result = JSON.parse(text);\n    if (result && typeof result === 'object' && !Array.isArray(result)) return result;\n    return null;\n  } catch (e) {\n    return null;\n  }\n}\n\nfunction normalizeBoolean(value) {\n  if (value === true) return true;\n  if (value === false) return false;\n  if (typeof value === 'string') {\n    const v = value.trim().toLowerCase();\n    if (v === 'true' || v === 'yes' || v === '1') return true;\n    if (v === 'false' || v === 'no' || v === '0') return false;\n  }\n  return undefined;\n}\n\nfunction parseBudgetValue(budgetStr) {\n  if (typeof budgetStr !== 'string' || !budgetStr.trim()) return 0;\n  const cleaned = budgetStr.replace(/[^0-9.]/g, '');\n  const num = parseFloat(cleaned);\n  return Number.isNaN(num) ? 0 : num;\n}\n\nconst decisionMakerTitles = ['owner', 'founder', 'ceo', 'coo', 'cto', 'cmo', 'vp', 'director', 'head', 'general manager', 'operations manager', 'marketing manager'];\nfunction isDecisionMaker(jobTitle) {\n  if (typeof jobTitle !== 'string' || !jobTitle.trim()) return false;\n  const t = jobTitle.toLowerCase();\n  return decisionMakerTitles.some((title) => t.includes(title));\n}\n\nconst aiSignalKeys = ['clear_business_need', 'specific_automation_need', 'urgency_or_timeline', 'pricing_demo_or_call_request', 'strong_purchase_intent'];\n\nconst parsed = extractJson($json.output);\nlet malformed = parsed === null;\n\nconst qualification_signals = {};\nif (!malformed) {\n  for (const key of aiSignalKeys) {\n    if (Object.prototype.hasOwnProperty.call(parsed, key)) {\n      const norm = normalizeBoolean(parsed[key]);\n      if (norm === undefined) {\n        malformed = true;\n        break;\n      }\n      qualification_signals[key] = norm;\n    } else {\n      qualification_signals[key] = false;\n    }\n  }\n}\n\nconst budget_value = parseBudgetValue(original.budget);\nconst budget_provided = budget_value > 0;\nconst high_budget = budget_value >= 10000;\nconst decision_maker = isDecisionMaker(original.job_title);\n\nif (!malformed) {\n  qualification_signals.decision_maker = decision_maker;\n  qualification_signals.budget_provided = budget_provided;\n  qualification_signals.high_budget = high_budget;\n}\n\nlet lead_score = null;\nlet lead_category = 'review';\n\nif (!malformed) {\n  const weights = { clear_business_need: 2, specific_automation_need: 2, decision_maker: 1, budget_provided: 1, high_budget: 1, urgency_or_timeline: 1, pricing_demo_or_call_request: 1, strong_purchase_intent: 1 };\n  lead_score = 0;\n  for (const key of Object.keys(weights)) {\n    if (qualification_signals[key]) lead_score += weights[key];\n  }\n  lead_score = Math.max(0, Math.min(10, lead_score));\n  lead_category = lead_score >= 8 ? 'high' : (lead_score >= 5 ? 'medium' : 'low');\n}\n\nlet lead_intent = 'unknown';\nif (!malformed && typeof parsed.lead_intent === 'string' && parsed.lead_intent.trim()) {\n  lead_intent = parsed.lead_intent.trim().toLowerCase();\n}\n\nconst summary = (!malformed && typeof parsed.summary === 'string' && parsed.summary.trim())\n  ? parsed.summary.trim()\n  : (malformed ? 'AI signal extraction was missing or invalid; routed to manual review.' : 'No summary provided.');\n\nconst recommended_action = (!malformed && typeof parsed.recommended_action === 'string' && parsed.recommended_action.trim())\n  ? parsed.recommended_action.trim()\n  : (malformed ? 'Manual review required.' : 'Manual review recommended.');\n\nlet reason;\nif (malformed) {\n  reason = 'AI output could not be parsed as valid JSON, or contained unrecognized signal values; routed to manual review.';\n} else {\n  const trueSignals = Object.keys(qualification_signals).filter((k) => qualification_signals[k]);\n  reason = 'Score ' + lead_score + '/10 from signals: ' + (trueSignals.length ? trueSignals.join(', ') : 'none detected') + '; budget_value=' + budget_value;\n}\n\nreturn {\n  json: {\n    request_id: original.request_id,\n    email: classification.email,\n    intent: classification.intent,\n    qualification_signals: qualification_signals,\n    budget_value: budget_value,\n    lead_score: lead_score,\n    lead_category: lead_category,\n    lead_intent: lead_intent,\n    summary: summary,\n    reason: reason,\n    recommended_action: recommended_action,\n    malformed_ai_output: malformed,\n    qualification_status: malformed ? 'malformed' : 'ok',\n    requires_human: malformed\n  }\n};"
+      },
+      "id": "d0130171-e278-4861-bc29-fb181ca6e5c7",
+      "name": "Validate Lead Qualification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3920,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const classification = $('Validate Classification Output').item.json;\nconst original = $('Mark Not Duplicate').item.json;\n\nreturn {\n  json: {\n    request_id: original.request_id,\n    email: classification.email,\n    intent: classification.intent,\n    qualification_signals: null,\n    budget_value: null,\n    lead_score: null,\n    lead_category: 'review',\n    lead_intent: 'unknown',\n    summary: 'Lead qualification failed (AI agent execution error); routed to manual review.',\n    reason: 'AI lead qualification error (Groq/agent execution failure).',\n    recommended_action: 'Manual review required.',\n    malformed_ai_output: true,\n    qualification_status: 'error',\n    requires_human: true\n  }\n};"
+      },
+      "id": "2135a3eb-98c3-4881-8e16-20f95aa591be",
+      "name": "Handle Lead Qualification Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.lead_category }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "high"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "high"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.lead_category }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "medium"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "medium"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.lead_category }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "low"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "low"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unhandled"
+        }
+      },
+      "id": "eb3545f1-6377-4084-9f66-c80901c14cbf",
+      "name": "Route by Lead Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        4144,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "6b53aff2-aaf3-4000-9afa-911f48e094b7",
+      "name": "Respond High Lead",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4448,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "c74e495b-5891-443d-a245-6c9b0c054319",
+      "name": "Respond Medium Lead",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4448,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "6acb49c6-7525-4cdd-a7bf-bce1a27e6a97",
+      "name": "Respond Low Lead",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4448,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"lead_review_required\", \"requires_human\": true, \"request_id\": $json.request_id } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "5c0880e2-0c7d-4fba-be69-59fcb0b20b9e",
+      "name": "Respond Lead Review Required",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4448,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 5,
+        "filters": {
+          "query": "={{ $json.email }}"
+        },
+        "options": {},
+        "requestOptions": {}
+      },
+      "id": "52635569-9a71-4028-8cca-01b878fbfac2",
+      "name": "Search Contact By Email",
+      "type": "n8n-nodes-base.highLevel",
+      "typeVersion": 2,
+      "position": [
+        4448,
+        704
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "highLevelOAuth2Api": {
+          "id": "7e6Hw8gbweLMfRYt",
+          "name": "HighLevel account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst candidateIds = items\n  .map((item) => (item.json && typeof item.json.id === 'string') ? item.json.id : null)\n  .filter((id) => id !== null);\n\nif (candidateIds.length === 0) {\n  return [{ json: { hasCandidates: false } }];\n}\n\nreturn candidateIds.map((id) => ({ json: { hasCandidates: true, candidateId: id } }));"
+      },
+      "id": "fdd9d2ee-e983-4a3f-9dea-6ad1fe8035bd",
+      "name": "Extract Candidate IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4704,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasCandidates }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "664625d0-7738-4b5a-aa49-7e0f123fe3c5",
+      "name": "Has Candidates",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4960,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "contactId": "={{ $json.candidateId }}",
+        "requestOptions": {}
+      },
+      "id": "875d317d-527b-438f-920a-3424e7f713af",
+      "name": "Get Candidate Contact",
+      "type": "n8n-nodes-base.highLevel",
+      "typeVersion": 2,
+      "position": [
+        5200,
+        592
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "highLevelOAuth2Api": {
+          "id": "7e6Hw8gbweLMfRYt",
+          "name": "HighLevel account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const targetEmail = String($('Validate Lead Qualification').item.json.email || '').trim().toLowerCase();\nconst items = $input.all();\nconst match = items.find((item) => {\n  const c = item.json || {};\n  const em = (c.emailLowerCase || (typeof c.email === 'string' ? c.email.toLowerCase() : '')).trim();\n  return em === targetEmail && em !== '';\n});\n\nif (match) {\n  return [{ json: { contactExists: true, contactId: match.json.id } }];\n}\n\nreturn [{ json: { contactExists: false, contactId: null } }];"
+      },
+      "id": "1584a001-9102-4dad-95bc-0c2a8da12187",
+      "name": "Resolve Exact Match",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5456,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { contactExists: false, contactId: null } };"
+      },
+      "id": "51b92bd8-b424-4ea4-9f3a-502bbc4606b8",
+      "name": "No Candidates Found",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5200,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.contactExists }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "d5ba4efb-f6b8-443c-bf67-d30b6a5b5ef9",
+      "name": "Has Existing Contact",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5712,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "contactId": "={{ $json.contactId }}",
+        "updateFields": {
+          "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+          "name": "={{ $('Mark Not Duplicate').item.json.name }}",
+          "phone": "={{ $('Mark Not Duplicate').item.json.phone }}",
+          "tags": "=lead-category-{{ $('Validate Lead Qualification').item.json.lead_category }}, intent-{{ $('Validate Lead Qualification').item.json.intent }}, score-{{ $('Validate Lead Qualification').item.json.lead_score }}, req-{{ $('Validate Lead Qualification').item.json.request_id }}"
+        },
+        "requestOptions": {}
+      },
+      "id": "0b8631dc-5ecc-475c-b70c-922ca704dde5",
+      "name": "Update Contact",
+      "type": "n8n-nodes-base.highLevel",
+      "typeVersion": 2,
+      "position": [
+        5952,
+        592
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "highLevelOAuth2Api": {
+          "id": "7e6Hw8gbweLMfRYt",
+          "name": "HighLevel account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+        "phone": "={{ $('Mark Not Duplicate').item.json.phone }}",
+        "additionalFields": {
+          "name": "={{ $('Mark Not Duplicate').item.json.name }}",
+          "source": "DEV Automation - Sales Qualification",
+          "notes": "=Company: {{ $('Mark Not Duplicate').item.json.company }} | Job Title: {{ $('Mark Not Duplicate').item.json.job_title }} | Budget: {{ $('Mark Not Duplicate').item.json.budget }} | Lead Score: {{ $('Validate Lead Qualification').item.json.lead_score }} | Category: {{ $('Validate Lead Qualification').item.json.lead_category }} | Intent: {{ $('Validate Lead Qualification').item.json.intent }} | Summary: {{ $('Validate Lead Qualification').item.json.summary }} | Recommended Action: {{ $('Validate Lead Qualification').item.json.recommended_action }} | Request ID: {{ $('Validate Lead Qualification').item.json.request_id }}",
+          "tags": "=lead-category-{{ $('Validate Lead Qualification').item.json.lead_category }}, intent-{{ $('Validate Lead Qualification').item.json.intent }}, score-{{ $('Validate Lead Qualification').item.json.lead_score }}, req-{{ $('Validate Lead Qualification').item.json.request_id }}"
+        },
+        "requestOptions": {}
+      },
+      "id": "b9dd1d3c-8b36-42f8-b710-f3efbd239719",
+      "name": "Create Contact",
+      "type": "n8n-nodes-base.highLevel",
+      "typeVersion": 2,
+      "position": [
+        5952,
+        832
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "highLevelOAuth2Api": {
+          "id": "7e6Hw8gbweLMfRYt",
+          "name": "HighLevel account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { ...$json, contact_id: $json.id } };"
+      },
+      "id": "6299f24f-22e1-48fa-b630-1727cfb421d4",
+      "name": "Resolve Contact ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6208,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Validate Lead Qualification').item.json.lead_category }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "high"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "high"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Validate Lead Qualification').item.json.lead_category }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "medium"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "medium"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Validate Lead Qualification').item.json.lead_category }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "low"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "low"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unhandled"
+        }
+      },
+      "id": "8ea5f588-aa6a-419d-8400-90ff588dadea",
+      "name": "Route CRM Result by Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        6464,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "opportunity",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "pipelineId": "3aPOaI2WDL0hQFvpEdmY"
+        },
+        "requestOptions": {}
+      },
+      "id": "23003951-81cf-438b-bf45-5661025d6b7c",
+      "name": "Check Existing Opportunity",
+      "type": "n8n-nodes-base.highLevel",
+      "typeVersion": 2,
+      "position": [
+        6752,
+        464
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "highLevelOAuth2Api": {
+          "id": "7e6Hw8gbweLMfRYt",
+          "name": "HighLevel account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resolvedContactId = $('Resolve Contact ID').item.json.contact_id;\nconst items = $input.all();\nconst match = items.find((item) => item.json && item.json.contactId === resolvedContactId);\n\nif (match) {\n  return [{ json: { opportunityExists: true, opportunityId: match.json.id } }];\n}\n\nreturn [{ json: { opportunityExists: false, opportunityId: null } }];"
+      },
+      "id": "16830f90-b65b-4f06-90fe-259131bf4199",
+      "name": "Match Opportunity By Contact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7008,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.opportunityExists }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "ed33a763-929b-491e-8c87-f8b316f57bfb",
+      "name": "Has Existing Opportunity",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7264,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "opportunity",
+        "pipelineId": "3aPOaI2WDL0hQFvpEdmY",
+        "contactId": "={{ $('Resolve Contact ID').item.json.contact_id }}",
+        "name": "={{ $('Mark Not Duplicate').item.json.name }} - High Lead ({{ $('Validate Lead Qualification').item.json.request_id }})",
+        "additionalFields": {
+          "monetaryValue": "={{ $('Validate Lead Qualification').item.json.budget_value }}",
+          "stageId": "e60dedd2-6167-45f6-a1db-98015344aa4a"
+        },
+        "requestOptions": {}
+      },
+      "id": "cb7c658b-d52e-46b9-81e6-36b94631f075",
+      "name": "Create Opportunity",
+      "type": "n8n-nodes-base.highLevel",
+      "typeVersion": 2,
+      "position": [
+        7504,
+        368
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "highLevelOAuth2Api": {
+          "id": "7e6Hw8gbweLMfRYt",
+          "name": "HighLevel account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const contactId = $('Resolve Contact ID').item.json.contact_id;\nlet opportunityId = null;\nlet opportunityStatus = 'unknown';\n\nif ($json && $json.opportunity && $json.opportunity.id) {\n  opportunityId = $json.opportunity.id;\n  opportunityStatus = 'created';\n} else if ($json && $json.opportunityId) {\n  opportunityId = $json.opportunityId;\n  opportunityStatus = 'existing';\n}\n\nconst validated = $('Validate Lead Qualification').item.json;\n\nreturn {\n  json: {\n    status: 'qualified',\n    lead_score: validated.lead_score,\n    lead_category: validated.lead_category,\n    summary: validated.summary,\n    reason: validated.reason,\n    recommended_action: validated.recommended_action,\n    request_id: validated.request_id,\n    crm_contact_id: contactId,\n    crm_opportunity_id: opportunityId,\n    crm_opportunity_status: opportunityStatus\n  }\n};"
+      },
+      "id": "72deec47-7200-4c5f-bf73-a072d6cc7f38",
+      "name": "Prepare High Lead CRM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7760,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const contactId = $('Resolve Contact ID').item.json.contact_id;\nconst validated = $('Validate Lead Qualification').item.json;\n\nreturn {\n  json: {\n    status: 'qualified',\n    lead_score: validated.lead_score,\n    lead_category: validated.lead_category,\n    summary: validated.summary,\n    reason: validated.reason,\n    recommended_action: validated.recommended_action,\n    request_id: validated.request_id,\n    crm_contact_id: contactId\n  }\n};"
+      },
+      "id": "e9a03bea-e3d4-430b-b279-92d5a57b04ba",
+      "name": "Prepare Medium Lead CRM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6752,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const contactId = $('Resolve Contact ID').item.json.contact_id;\nconst validated = $('Validate Lead Qualification').item.json;\n\nreturn {\n  json: {\n    status: 'qualified',\n    lead_score: validated.lead_score,\n    lead_category: validated.lead_category,\n    summary: validated.summary,\n    reason: validated.reason,\n    recommended_action: validated.recommended_action,\n    request_id: validated.request_id,\n    crm_contact_id: contactId\n  }\n};"
+      },
+      "id": "7d96ee52-82ec-42fd-a189-b0a46810bffe",
+      "name": "Prepare Low Lead CRM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6752,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Validate Lead Qualification').item.json.email }}",
+        "subject": "=Thank you for your inquiry - let's discuss next steps",
+        "emailType": "text",
+        "message": "=Hi {{ $('Mark Not Duplicate').item.json.name || 'there' }},\n\nThank you for reaching out. {{ $('Validate Lead Qualification').item.json.summary }}\n\nWe wanted to let you know your inquiry has been prioritized, and we'd love to schedule a discovery call to go over your requirements in more detail.\n\n{{ $('Validate Lead Qualification').item.json.recommended_action }}\n\nJust reply to this email with a time that works for you, and we'll take it from there.\n\nBest regards,\nThe Team",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "0568ea5d-c755-4189-b5c4-2d9981794959",
+      "name": "Send High Lead Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        8064,
+        400
+      ],
+      "webhookId": "09e3bc07-4339-4cea-9ef3-0b1b905b8159",
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nQKV7Z2yvpkfc6OU",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Prepare High Lead CRM Response').item.json;\nreturn { json: { ...original, email_sent: !!($json && $json.email_sent) } };"
+      },
+      "id": "7e5854ce-e68a-459c-9378-8d05a484e194",
+      "name": "Finalize High Lead Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8304,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Validate Lead Qualification').item.json.email }}",
+        "subject": "=Thanks for your interest - let's connect",
+        "emailType": "text",
+        "message": "=Hi {{ $('Mark Not Duplicate').item.json.name || 'there' }},\n\nThank you for your interest and for reaching out to us. {{ $('Validate Lead Qualification').item.json.summary }}\n\nWe'd be happy to discuss your requirements, scope, or pricing whenever it's convenient for you - no rush at all.\n\n{{ $('Validate Lead Qualification').item.json.recommended_action }}\n\nFeel free to reply to this email with any questions.\n\nBest regards,\nThe Team",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "946aa8d9-2e15-4423-a500-bda4412eb8c9",
+      "name": "Send Medium Lead Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        7008,
+        752
+      ],
+      "webhookId": "3cb24659-a45e-4b3e-9a13-2b81ccad8412",
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nQKV7Z2yvpkfc6OU",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Prepare Medium Lead CRM Response').item.json;\nreturn { json: { ...original, email_sent: !!($json && $json.email_sent) } };"
+      },
+      "id": "dbcbd1ea-51bf-47dc-a55f-ed30e7ac182f",
+      "name": "Finalize Medium Lead Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7264,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Validate Lead Qualification').item.json.email }}",
+        "subject": "=We received your inquiry",
+        "emailType": "text",
+        "message": "=Hi {{ $('Mark Not Duplicate').item.json.name || 'there' }},\n\nThank you for reaching out to us. We wanted to confirm that we've received your inquiry.\n\nIf you'd like more information in the future, feel free to reach out anytime.\n\nBest regards,\nThe Team",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "7809e5b5-5507-466b-b71f-d38bb40c7a6a",
+      "name": "Send Low Lead Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        7008,
+        960
+      ],
+      "webhookId": "f50237c8-8a0f-4a37-b812-ee72bda5da25",
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nQKV7Z2yvpkfc6OU",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Prepare Low Lead CRM Response').item.json;\nreturn { json: { ...original, email_sent: !!($json && $json.email_sent) } };"
+      },
+      "id": "a6db6ef7-0cd8-406f-be01-abebc1bcfb95",
+      "name": "Finalize Low Lead Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7264,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const v = $('Validate Lead Qualification').item.json;\nconst event_key = v.request_id + '|' + v.email + '|' + v.lead_category;\nreturn { json: { event_key: event_key } };"
+      },
+      "id": "68b5ad25-3cfa-4536-8155-5ded2c21d303",
+      "name": "Compute High Email Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8064,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "email_send_tracking",
+          "mode": "id",
+          "value": "v140WvxmI30N0OpF"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_key",
+              "keyValue": "={{ $json.event_key }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "89d365ff-d59b-4a7a-8877-70111b362589",
+      "name": "Check High Email Already Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        8304,
+        208
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "c6fa9087-7193-4de9-89f8-86f375bc1c86",
+      "name": "Has High Email Record",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8560,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { email_sent: true } };"
+      },
+      "id": "e0b4e994-79bc-49ae-ac6f-192ddec054b8",
+      "name": "Mark Already Sent High",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8800,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "0b192328-3675-4366-b6c7-80fc0ab30530",
+      "name": "Was High Email Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9312,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "email_send_tracking",
+          "mode": "id",
+          "value": "v140WvxmI30N0OpF"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "event_key",
+              "id": "event_key",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "request_id",
+              "id": "request_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "email",
+              "id": "email",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "lead_category",
+              "id": "lead_category",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "sent_at",
+              "id": "sent_at",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+            "event_key": "={{ $('Compute High Email Key').item.json.event_key }}",
+            "lead_category": "={{ $('Validate Lead Qualification').item.json.lead_category }}",
+            "request_id": "={{ $('Validate Lead Qualification').item.json.request_id }}",
+            "sent_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "024c6249-23c2-479d-b955-54607bfaf122",
+      "name": "Record High Email Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        9552,
+        208
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { email_sent: true } };"
+      },
+      "id": "4b1e02b1-831d-4d26-943e-15c344934e1f",
+      "name": "Mark Sent High",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9808,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { email_sent: false } };"
+      },
+      "id": "b73377ce-eb01-4b2e-941a-6cae1a13bd98",
+      "name": "Mark Failed High",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9552,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const v = $('Validate Lead Qualification').item.json;\nconst event_key = v.request_id + '|' + v.email + '|' + v.lead_category;\nreturn { json: { event_key: event_key } };"
+      },
+      "id": "9a484052-4820-4c2b-baee-e645ee5d9e6b",
+      "name": "Compute Medium Email Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7008,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "email_send_tracking",
+          "mode": "id",
+          "value": "v140WvxmI30N0OpF"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_key",
+              "keyValue": "={{ $json.event_key }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "afa4ca69-7ea4-4afa-b46a-a916e68fc830",
+      "name": "Check Medium Email Already Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        7264,
+        960
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "5d896aff-7658-4973-983f-bdb93de629c7",
+      "name": "Has Medium Email Record",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7504,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { email_sent: true } };"
+      },
+      "id": "16809b64-9c3c-47e6-8271-dd5b6261d411",
+      "name": "Mark Already Sent Medium",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7760,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "5da92f91-b7c3-45c4-bbf3-e25204f36a27",
+      "name": "Was Medium Email Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8256,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "email_send_tracking",
+          "mode": "id",
+          "value": "v140WvxmI30N0OpF"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "event_key",
+              "id": "event_key",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "request_id",
+              "id": "request_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "email",
+              "id": "email",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "lead_category",
+              "id": "lead_category",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "sent_at",
+              "id": "sent_at",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+            "event_key": "={{ $('Compute Medium Email Key').item.json.event_key }}",
+            "lead_category": "={{ $('Validate Lead Qualification').item.json.lead_category }}",
+            "request_id": "={{ $('Validate Lead Qualification').item.json.request_id }}",
+            "sent_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "562d5242-c317-434c-aba6-a49a0b42001a",
+      "name": "Record Medium Email Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        8512,
+        960
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { email_sent: true } };"
+      },
+      "id": "5d59e332-705d-40eb-8e56-8778fcff79be",
+      "name": "Mark Sent Medium",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8752,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { email_sent: false } };"
+      },
+      "id": "bfb33f9d-e468-4c49-a2dd-88bb24764cba",
+      "name": "Mark Failed Medium",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8512,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const v = $('Validate Lead Qualification').item.json;\nconst event_key = v.request_id + '|' + v.email + '|' + v.lead_category;\nreturn { json: { event_key: event_key } };"
+      },
+      "id": "091aee0e-da05-4938-b0b2-2fc47508d142",
+      "name": "Compute Low Email Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7008,
+        1360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "email_send_tracking",
+          "mode": "id",
+          "value": "v140WvxmI30N0OpF"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_key",
+              "keyValue": "={{ $json.event_key }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "93e2b880-00b2-4871-bd3f-0374b4379483",
+      "name": "Check Low Email Already Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        7264,
+        1360
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "33ffb93c-921d-49b6-8f38-5fe5689b385a",
+      "name": "Has Low Email Record",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7504,
+        1360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { email_sent: true } };"
+      },
+      "id": "fa29734e-ec55-4d67-b6df-07edf11a14db",
+      "name": "Mark Already Sent Low",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7760,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "dd8a6eb7-d68c-430e-8cbf-185e35ff7ac3",
+      "name": "Was Low Email Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8256,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "email_send_tracking",
+          "mode": "id",
+          "value": "v140WvxmI30N0OpF"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "event_key",
+              "id": "event_key",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "request_id",
+              "id": "request_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "email",
+              "id": "email",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "lead_category",
+              "id": "lead_category",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "sent_at",
+              "id": "sent_at",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+            "event_key": "={{ $('Compute Low Email Key').item.json.event_key }}",
+            "lead_category": "={{ $('Validate Lead Qualification').item.json.lead_category }}",
+            "request_id": "={{ $('Validate Lead Qualification').item.json.request_id }}",
+            "sent_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "6e97ad62-bcef-4ad3-9814-45a762afd858",
+      "name": "Record Low Email Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        8512,
+        1360
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { email_sent: true } };"
+      },
+      "id": "a41ba617-074a-4b35-94d5-6335235a442e",
+      "name": "Mark Sent Low",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8752,
+        1360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { email_sent: false } };"
+      },
+      "id": "3b54d36f-a3ce-42b8-9b20-016519bb482b",
+      "name": "Mark Failed Low",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8512,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const v = $('Validate Lead Qualification').item.json;\nconst event_key = v.request_id + '|' + v.email + '|high|sales_alert';\nreturn { json: { event_key: event_key } };"
+      },
+      "id": "976fb336-7268-4420-9b15-9da997703a8f",
+      "name": "Compute Sales Alert Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8304,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "sales_alert_tracking",
+          "mode": "id",
+          "value": "EseakG51IYz2A4MS"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_key",
+              "keyValue": "={{ $json.event_key }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "bcd0235a-a94e-4772-b691-0ff6f042c9e4",
+      "name": "Check Sales Alert Already Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        8560,
+        704
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "49e8ad1d-826d-435d-b26e-8373bef6938e",
+      "name": "Has Sales Alert Record",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8800,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { sales_alert_sent: true } };"
+      },
+      "id": "ce4b7d90-0d3b-41f8-9167-83027ebfcea6",
+      "name": "Mark Sales Alert Already Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9056,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "aminul.islam4738@gmail.com",
+        "subject": "=[HIGH LEAD] {{ $('Mark Not Duplicate').item.json.name }} | {{ $('Mark Not Duplicate').item.json.company || 'N/A' }}",
+        "emailType": "text",
+        "message": "=Internal Sales Alert - HIGH Lead\n\nName: {{ $('Mark Not Duplicate').item.json.name }}\nEmail: {{ $('Validate Lead Qualification').item.json.email }}\nPhone: {{ $('Mark Not Duplicate').item.json.phone || 'N/A' }}\nCompany: {{ $('Mark Not Duplicate').item.json.company || 'N/A' }}\nJob Title: {{ $('Mark Not Duplicate').item.json.job_title || 'N/A' }}\nBudget: {{ $('Mark Not Duplicate').item.json.budget || 'N/A' }}\n\nLead Score: {{ $('Validate Lead Qualification').item.json.lead_score }}\nLead Category: {{ $('Validate Lead Qualification').item.json.lead_category }}\nQualification Summary: {{ $('Validate Lead Qualification').item.json.summary }}\nRecommended Action: {{ $('Validate Lead Qualification').item.json.recommended_action }}\n\nRequest ID: {{ $('Finalize High Lead Response').item.json.request_id }}\nHighLevel Contact ID: {{ $('Finalize High Lead Response').item.json.crm_contact_id }}\nHighLevel Opportunity ID: {{ $('Finalize High Lead Response').item.json.crm_opportunity_id || 'N/A' }}\nHighLevel Opportunity Status: {{ $('Finalize High Lead Response').item.json.crm_opportunity_status || 'N/A' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "317df8f1-74d5-44e5-a8ce-da62777656af",
+      "name": "Send Internal Sales Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        9056,
+        832
+      ],
+      "webhookId": "e8b5adce-7a7a-4209-a818-aafa92c33212",
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nQKV7Z2yvpkfc6OU",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "66fc34c9-608a-4fc8-8a31-e6e4b85e3bd5",
+      "name": "Was Sales Alert Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9312,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "sales_alert_tracking",
+          "mode": "id",
+          "value": "EseakG51IYz2A4MS"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "event_key",
+              "id": "event_key",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "request_id",
+              "id": "request_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "email",
+              "id": "email",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "lead_category",
+              "id": "lead_category",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "alert_type",
+              "id": "alert_type",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "sent_at",
+              "id": "sent_at",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "alert_type": "sales_alert",
+            "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+            "event_key": "={{ $('Compute Sales Alert Key').item.json.event_key }}",
+            "lead_category": "={{ $('Validate Lead Qualification').item.json.lead_category }}",
+            "request_id": "={{ $('Validate Lead Qualification').item.json.request_id }}",
+            "sent_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "ab495eb1-416f-47d1-9c61-af0fc6fbc0ee",
+      "name": "Record Sales Alert Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        9552,
+        768
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { sales_alert_sent: true } };"
+      },
+      "id": "d05eebda-314f-485d-9f92-52de80fc5a18",
+      "name": "Mark Sales Alert Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9808,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { sales_alert_sent: false } };"
+      },
+      "id": "d2dfd4bd-0986-44c0-a373-6cc2ba9a7a8a",
+      "name": "Mark Sales Alert Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9552,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Finalize High Lead Response').item.json;\nreturn { json: { ...original, sales_alert_sent: !!($json && $json.sales_alert_sent) } };"
+      },
+      "id": "1f2a4150-3ab0-416e-8583-46a290325945",
+      "name": "Finalize HIGH Lead Response With Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10064,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Mark Not Duplicate').item.json;\nconst classification = $json;\nconst query = String(original.message || '').trim();\nreturn { json: {\n  request_id: original.request_id,\n  email: classification.email,\n  name: original.name,\n  message: original.message,\n  query: query\n} };"
+      },
+      "id": "410fc8b9-43e5-4018-8dbb-a9decdecff22",
+      "name": "Normalize Support Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3552,
+        1312
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-embedding-2"
+      },
+      "id": "9b0ad0f8-bd41-47ed-aa61-16d843f70dd7",
+      "name": "Embeddings Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        3808,
+        1504
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "mlyenEz1Mxe7rNVN",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "load",
+        "pineconeIndex": {
+          "__rl": true,
+          "cachedResultName": "support-kb-gemini-dev-3072",
+          "mode": "list",
+          "value": "support-kb-gemini-dev-3072"
+        },
+        "prompt": "={{ $json.query }}",
+        "options": {}
+      },
+      "id": "47e2f611-5581-4eff-a2cb-9a8d06760f59",
+      "name": "Pinecone Retrieval",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.3,
+      "position": [
+        3808,
+        1312
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "pineconeApi": {
+          "id": "NQEzYIp8XxBD6tAp",
+          "name": "Pinecone account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst looksLikeError = items.length === 1 && items[0].json && typeof items[0].json.error === 'string' && items[0].json.pageContent === undefined && items[0].json.document === undefined;\n\nlet docs = [];\nif (!looksLikeError) {\n  docs = items.map((it) => {\n    const j = it.json || {};\n    const doc = j.document || {};\n    const pageContent = typeof j.pageContent === 'string' ? j.pageContent : (typeof doc.pageContent === 'string' ? doc.pageContent : '');\n    const metadata = j.metadata || doc.metadata || {};\n    const score = typeof j.score === 'number' ? j.score : (typeof j.similarity === 'number' ? j.similarity : 0);\n    return {\n      score: score,\n      title: typeof metadata.title === 'string' ? metadata.title : 'unknown',\n      source: typeof metadata.source === 'string' ? metadata.source : 'unknown',\n      content: pageContent\n    };\n  }).filter((d) => d.content && d.content.trim());\n}\n\nconst top_score = docs.length ? Math.max(...docs.map((d) => d.score)) : 0;\nconst retrieval_ok = !looksLikeError && docs.length > 0 && top_score > 0;\n\nconst context_block = docs\n  .slice(0, 4)\n  .map((d) => '[' + d.source + '] ' + d.title + ': ' + d.content)\n  .join('\\n')\n  .slice(0, 2000);\n\nconst evidence_sources = docs.map((d) => d.source);\n\nreturn [{\n  json: {\n    retrieval_ok: retrieval_ok,\n    top_score: top_score,\n    context_block: context_block,\n    evidence_sources: evidence_sources\n  }\n}];"
+      },
+      "id": "ef42e94e-3862-44e0-a7bc-d571857da111",
+      "name": "Validate Retrieved Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4064,
+        1312
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.retrieval_ok }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "c5eb07b6-144b-4d6f-94dc-9b467e6521d7",
+      "name": "Has Usable Context",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4304,
+        1312
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: {\n  answer: '',\n  grounded: false,\n  confidence: 0,\n  evidence_used: [],\n  malformed_ai_output: false\n} };"
+      },
+      "id": "c67e99ea-70af-4e44-9795-5f5e999b3dda",
+      "name": "Skip Generation No Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {
+          "maxTokensToSample": 600,
+          "temperature": 0.1
+        }
+      },
+      "id": "1572143f-777b-48b3-9b47-498a2d7bb2ae",
+      "name": "Groq RAG Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        4560,
+        1360
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "groqApi": {
+          "id": "U0EYV8CahGXlAfpw",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Customer question: {{ $('Normalize Support Query').item.json.query }}\n\nKnowledge base context:\n{{ $('Validate Retrieved Context').item.json.context_block }}\n\nReturn the JSON object now.",
+        "options": {
+          "systemMessage": "You are a support assistant. Answer the customer's question using ONLY the provided knowledge base context below. Never invent company policy or facts that are not present in the context. If the context does not contain enough information to answer confidently, set grounded to false and requires_human to true, and leave answer as a short honest statement that you do not have enough information. Output ONLY a single raw JSON object, no markdown, no code fences, no explanation, nothing before or after it. Required JSON keys, exactly: answer (string), grounded (boolean), confidence (number between 0 and 1), evidence_used (array of source identifiers actually used from the context), requires_human (boolean).",
+          "maxIterations": 3
+        }
+      },
+      "id": "5e557d93-c8bb-43f5-9cd8-e85b9736680c",
+      "name": "Groq RAG Generation",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        4560,
+        1152
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function extractJson(raw) {\n  if (raw === null || raw === undefined) return null;\n  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;\n  if (typeof raw !== 'string') return null;\n  let text = raw.trim();\n  const fenceMatch = text.match(/^```(?:json)?\\s*([\\s\\S]*?)\\s*```$/i);\n  if (fenceMatch) {\n    text = fenceMatch[1].trim();\n  }\n  if (!(text.startsWith('{') && text.endsWith('}'))) {\n    const braceMatch = text.match(/\\{[\\s\\S]*\\}/);\n    if (braceMatch) {\n      text = braceMatch[0];\n    }\n  }\n  try {\n    const result = JSON.parse(text);\n    if (result && typeof result === 'object' && !Array.isArray(result)) return result;\n    return null;\n  } catch (e) {\n    return null;\n  }\n}\n\nfunction normalizeBoolean(value) {\n  if (value === true) return true;\n  if (value === false) return false;\n  if (typeof value === 'string') {\n    const v = value.trim().toLowerCase();\n    if (v === 'true' || v === 'yes' || v === '1') return true;\n    if (v === 'false' || v === 'no' || v === '0') return false;\n  }\n  return undefined;\n}\n\nconst parsed = extractJson($json.output);\nlet malformed = parsed === null;\n\nlet answer = '';\nlet grounded = false;\nlet confidence = 0;\nlet evidence_used = [];\n\nif (!malformed) {\n  answer = typeof parsed.answer === 'string' ? parsed.answer.trim() : '';\n\n  const groundedNorm = normalizeBoolean(parsed.grounded);\n  if (groundedNorm === undefined) {\n    malformed = true;\n  } else {\n    grounded = groundedNorm;\n  }\n\n  let conf = typeof parsed.confidence === 'number' ? parsed.confidence : parseFloat(parsed.confidence);\n  if (typeof conf !== 'number' || Number.isNaN(conf)) {\n    conf = 0;\n  }\n  confidence = Math.max(0, Math.min(1, conf));\n\n  if (Array.isArray(parsed.evidence_used)) {\n    evidence_used = parsed.evidence_used.filter((e) => typeof e === 'string' && e.trim());\n  } else {\n    evidence_used = [];\n  }\n\n  if (!answer) {\n    malformed = true;\n  }\n}\n\nreturn {\n  json: {\n    answer: malformed ? '' : answer,\n    grounded: malformed ? false : grounded,\n    confidence: malformed ? 0 : confidence,\n    evidence_used: malformed ? [] : evidence_used,\n    malformed_ai_output: malformed\n  }\n};"
+      },
+      "id": "84809628-1ef3-4a6d-8359-1d1ab1d126b3",
+      "name": "Validate RAG Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: {\n  answer: '',\n  grounded: false,\n  confidence: 0,\n  evidence_used: [],\n  malformed_ai_output: true\n} };"
+      },
+      "id": "0c76a34c-a55c-42b8-a119-38c3c8160f40",
+      "name": "Handle RAG Generation Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Normalize Support Query').item.json;\nconst retrieval = $('Validate Retrieved Context').item.json;\nconst ai = $json;\n\nconst SIMILARITY_THRESHOLD = 0.75;\nconst CONFIDENCE_THRESHOLD = 0.7;\n\nconst evidence_used = Array.isArray(ai.evidence_used) ? ai.evidence_used.filter((e) => typeof e === 'string' && e.trim()) : [];\n\nconst autoEligible = (\n  retrieval.retrieval_ok === true &&\n  typeof retrieval.top_score === 'number' && retrieval.top_score >= SIMILARITY_THRESHOLD &&\n  ai.malformed_ai_output !== true &&\n  ai.grounded === true &&\n  typeof ai.confidence === 'number' && ai.confidence >= CONFIDENCE_THRESHOLD &&\n  evidence_used.length > 0\n);\n\nconst resolution_path = autoEligible ? 'auto_response' : 'human_handoff';\nconst requires_human = !autoEligible;\n\nconst answer = autoEligible\n  ? ai.answer\n  : \"Thanks for reaching out. This question needs a closer look from our support team, and someone will follow up with you shortly.\";\n\nreturn {\n  json: {\n    request_id: original.request_id,\n    email: original.email,\n    query: original.query,\n    top_score: retrieval.top_score,\n    grounded: ai.grounded === true,\n    confidence: typeof ai.confidence === 'number' ? ai.confidence : 0,\n    evidence_used: evidence_used,\n    answer: answer,\n    resolution_path: resolution_path,\n    requires_human: requires_human,\n    error_status: ai.malformed_ai_output === true ? 'ai_error' : (retrieval.retrieval_ok === false ? 'retrieval_error' : 'ok')\n  }\n};"
+      },
+      "id": "e88d92e0-6277-4020-b98b-2230f7863799",
+      "name": "Determine Support Resolution",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5056,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "support_query_log",
+          "mode": "id",
+          "value": "GTOU4DMBQUisZrYV"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "request_id",
+              "id": "request_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "email",
+              "id": "email",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "query",
+              "id": "query",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "top_score",
+              "id": "top_score",
+              "required": false,
+              "type": "number"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "grounded",
+              "id": "grounded",
+              "required": false,
+              "type": "boolean"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "confidence",
+              "id": "confidence",
+              "required": false,
+              "type": "number"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "resolution_path",
+              "id": "resolution_path",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "requires_human",
+              "id": "requires_human",
+              "required": false,
+              "type": "boolean"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "timestamp",
+              "id": "timestamp",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "error_status",
+              "id": "error_status",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "confidence": "={{ $json.confidence }}",
+            "email": "={{ $json.email }}",
+            "error_status": "={{ $json.error_status }}",
+            "grounded": "={{ $json.grounded }}",
+            "query": "={{ $json.query }}",
+            "request_id": "={{ $json.request_id }}",
+            "requires_human": "={{ $json.requires_human }}",
+            "resolution_path": "={{ $json.resolution_path }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "top_score": "={{ $json.top_score }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "162e98e9-56a4-4d97-b40c-441929a29602",
+      "name": "Support Logging",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        5312,
+        1200
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.resolution_path }}",
+              "operator": {
+                "operation": "equals",
+                "type": "string"
+              },
+              "rightValue": "auto_response"
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "92b41209-2f78-4557-ba1d-ca63d4537aeb",
+      "name": "Route by Resolution Path",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5552,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const v = $('Determine Support Resolution').item.json;\nconst event_key = v.request_id + '|' + v.email + '|support_auto_response';\nreturn { json: { event_key: event_key } };"
+      },
+      "id": "3565cf51-5140-4bb8-8d85-bf07d086d6fd",
+      "name": "Compute Support Response Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5808,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "support_response_tracking",
+          "mode": "id",
+          "value": "B4CeMcOmS7sdiRAH"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_key",
+              "keyValue": "={{ $json.event_key }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "a8c14a8f-038d-4f67-a4d1-b26f0e90926d",
+      "name": "Check Support Response Already Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        6064,
+        1008
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "66ba9342-c5f1-415c-92d8-a509ee46355a",
+      "name": "Has Support Response Record",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6304,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { support_response_sent: true } };"
+      },
+      "id": "406c7254-0899-4314-b294-c68e2369a0df",
+      "name": "Mark Support Response Already Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6560,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Determine Support Resolution').item.json.email }}",
+        "subject": "=Re: your support question",
+        "emailType": "text",
+        "message": "=Hi {{ $('Normalize Support Query').item.json.name || 'there' }},\n\n{{ $('Determine Support Resolution').item.json.answer }}\n\nIf this doesn't fully answer your question, just reply to this email and we'll be happy to help further.\n\nBest regards,\nThe Support Team",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "33ff2541-7f7e-4546-a9ae-344b787dda90",
+      "name": "Send Support Answer Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        6560,
+        1104
+      ],
+      "webhookId": "cd9052d9-d254-4700-aa82-fefa9d4832db",
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nQKV7Z2yvpkfc6OU",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "31456a46-525c-491e-94b7-b276c78a0b35",
+      "name": "Was Support Email Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6800,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "support_response_tracking",
+          "mode": "id",
+          "value": "B4CeMcOmS7sdiRAH"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "event_key",
+              "id": "event_key",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "request_id",
+              "id": "request_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "email",
+              "id": "email",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "resolution_path",
+              "id": "resolution_path",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "sent_at",
+              "id": "sent_at",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "email": "={{ $('Determine Support Resolution').item.json.email }}",
+            "event_key": "={{ $('Compute Support Response Key').item.json.event_key }}",
+            "request_id": "={{ $('Determine Support Resolution').item.json.request_id }}",
+            "resolution_path": "={{ $('Determine Support Resolution').item.json.resolution_path }}",
+            "sent_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "2c272d17-4cb2-4666-a84f-c211b93943f1",
+      "name": "Record Support Response Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        7056,
+        1056
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { support_response_sent: true } };"
+      },
+      "id": "4f698005-6b86-47cc-92d4-be0b0735526a",
+      "name": "Mark Support Response Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7312,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { support_response_sent: false } };"
+      },
+      "id": "2f1f0e4c-c0c1-4e2f-a150-992b920881b0",
+      "name": "Mark Support Response Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7056,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const v = $('Determine Support Resolution').item.json;\nconst event_key = v.request_id + '|' + v.email + '|support_handoff';\nreturn { json: { event_key: event_key } };"
+      },
+      "id": "a5ee503a-4d45-4476-a81e-02f77b97e753",
+      "name": "Compute Support Handoff Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5808,
+        1408
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "support_handoff_tracking",
+          "mode": "id",
+          "value": "e9yGWjKr1ohC30Qh"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_key",
+              "keyValue": "={{ $json.event_key }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "24c80c08-2c55-4186-b44b-f6205cad8050",
+      "name": "Check Support Handoff Already Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        6064,
+        1408
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "6ea4220d-c6be-4093-9b38-308ffa54b327",
+      "name": "Has Support Handoff Record",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6304,
+        1408
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { support_handoff_alert_sent: true } };"
+      },
+      "id": "15aefa20-49f3-4ec6-98e7-fa6fd7fb134b",
+      "name": "Mark Support Handoff Already Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6560,
+        1312
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "aminul.islam4738@gmail.com",
+        "subject": "=[SUPPORT HANDOFF] {{ $('Determine Support Resolution').item.json.request_id }}",
+        "emailType": "text",
+        "message": "=Internal Support Handoff Alert\n\nRequest ID: {{ $('Determine Support Resolution').item.json.request_id }}\nCustomer Email: {{ $('Determine Support Resolution').item.json.email }}\nOriginal Query: {{ $('Determine Support Resolution').item.json.query }}\n\nTop Similarity Score: {{ $('Determine Support Resolution').item.json.top_score }}\nGrounded: {{ $('Determine Support Resolution').item.json.grounded }}\nAI Confidence: {{ $('Determine Support Resolution').item.json.confidence }}\nEvidence Used: {{ $('Determine Support Resolution').item.json.evidence_used.join(', ') || 'none' }}\nError Status: {{ $('Determine Support Resolution').item.json.error_status }}\n\nReason for Handoff: {{ $('Determine Support Resolution').item.json.error_status === 'retrieval_error' ? 'Knowledge base retrieval failed or returned no usable results.' : ($('Determine Support Resolution').item.json.error_status === 'ai_error' ? 'AI generation failed or returned invalid/malformed output.' : ($('Determine Support Resolution').item.json.top_score < 0.75 ? 'Similarity score below the automatic-response threshold (0.75).' : ($('Determine Support Resolution').item.json.confidence < 0.7 ? 'AI-reported confidence below the automatic-response threshold (0.7).' : 'Deterministic safety gate did not clear this response for automatic delivery.'))) }}\n\nNo answer has been sent to the customer. Please review and respond directly.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d849a1dd-783a-4a9e-bd3d-dac12392962a",
+      "name": "Send Internal Support Handoff Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        6560,
+        1504
+      ],
+      "webhookId": "cc177d5e-6ffd-4083-a316-c9f48c0a1680",
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nQKV7Z2yvpkfc6OU",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "2c455c1e-66d8-4b22-ae36-2afd2135e1dc",
+      "name": "Was Support Handoff Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6800,
+        1504
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "support_handoff_tracking",
+          "mode": "id",
+          "value": "e9yGWjKr1ohC30Qh"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "event_key",
+              "id": "event_key",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "request_id",
+              "id": "request_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "email",
+              "id": "email",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "alert_type",
+              "id": "alert_type",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "sent_at",
+              "id": "sent_at",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "alert_type": "support_handoff",
+            "email": "={{ $('Determine Support Resolution').item.json.email }}",
+            "event_key": "={{ $('Compute Support Handoff Key').item.json.event_key }}",
+            "request_id": "={{ $('Determine Support Resolution').item.json.request_id }}",
+            "sent_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "f6119474-0d4a-412c-bb90-27296779841d",
+      "name": "Record Support Handoff Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        7056,
+        1456
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { support_handoff_alert_sent: true } };"
+      },
+      "id": "2fcc25be-669e-4b67-96c2-e773a87d6670",
+      "name": "Mark Support Handoff Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7312,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { support_handoff_alert_sent: false } };"
+      },
+      "id": "20ad68ed-0e1d-4093-a5eb-3e00ba098e7b",
+      "name": "Mark Support Handoff Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7056,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base = $('Determine Support Resolution').item.json;\nreturn {\n  json: {\n    ...base,\n    support_response_sent: $json.support_response_sent === true,\n    support_handoff_alert_sent: $json.support_handoff_alert_sent === true\n  }\n};"
+      },
+      "id": "339f330d-f851-4747-9d0a-e98ca1131779",
+      "name": "Finalize Support Delivery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7552,
+        1264
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $json.email }}",
+            "error_code": "",
+            "error_message": "",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "intake_recorded",
+            "node_name": "Record New Intake",
+            "request_id": "={{ $json.request_id }}",
+            "retryable": false,
+            "severity": "info",
+            "status": "success",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "intake"
+          }
+        },
+        "options": {}
+      },
+      "id": "fd948f18-7874-40ff-bbf0-bd2015133536",
+      "name": "Log Intake Success",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2352,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $json.email }}",
+            "error_code": "INVALID_INPUT",
+            "error_message": "={{ ($json.validation_errors || []).join('; ').slice(0,300) }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "validation_failed",
+            "node_name": "Check Valid Input",
+            "request_id": "={{ $json.request_id }}",
+            "retryable": false,
+            "severity": "warning",
+            "status": "failure",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "intake"
+          }
+        },
+        "options": {}
+      },
+      "id": "c3c05425-2d94-40ec-baab-75175a304eba",
+      "name": "Log Intake Invalid",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1152,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $json.email }}",
+            "error_code": "",
+            "error_message": "",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "intent_classified",
+            "node_name": "AI Intent Classification",
+            "request_id": "={{ $json.request_id }}",
+            "retryable": false,
+            "severity": "info",
+            "status": "={{ $json.classification_status }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "intent_classification"
+          }
+        },
+        "options": {}
+      },
+      "id": "d2c0a9dd-0e16-42a6-be10-b2c7169b1630",
+      "name": "Log Intent Success",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3248,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $json.email }}",
+            "error_code": "AI_AGENT_ERROR",
+            "error_message": "Groq intent classification agent execution failed after retries; routed to human review.",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "intent_classification_failed",
+            "node_name": "AI Intent Classification",
+            "request_id": "={{ $json.request_id }}",
+            "retryable": false,
+            "severity": "error",
+            "status": "failure",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "intent_classification"
+          }
+        },
+        "options": {}
+      },
+      "id": "a23f939a-3336-4187-90f8-b49b466f1393",
+      "name": "Log Intent Error",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3248,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $json.email }}",
+            "error_code": "={{ $json.malformed_ai_output ? 'MALFORMED_AI_OUTPUT' : '' }}",
+            "error_message": "={{ $json.malformed_ai_output ? 'AI qualification output could not be parsed as valid JSON; routed to manual review.' : '' }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "lead_qualified",
+            "node_name": "AI Lead Qualification",
+            "request_id": "={{ $json.request_id }}",
+            "retryable": false,
+            "severity": "={{ $json.malformed_ai_output ? 'warning' : 'info' }}",
+            "status": "={{ $json.qualification_status }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "sales_qualification"
+          }
+        },
+        "options": {}
+      },
+      "id": "59b47147-18ea-41fc-b2a2-244c5eb4c8d7",
+      "name": "Log Sales Qualification Success",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3920,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $json.email }}",
+            "error_code": "AI_AGENT_ERROR",
+            "error_message": "Groq lead qualification agent execution failed after retries; routed to manual review.",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "lead_qualification_failed",
+            "node_name": "AI Lead Qualification",
+            "request_id": "={{ $json.request_id }}",
+            "retryable": false,
+            "severity": "error",
+            "status": "failure",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "sales_qualification"
+          }
+        },
+        "options": {}
+      },
+      "id": "fbdc732c-abf6-45d0-babb-7584e4edcedc",
+      "name": "Log Sales Qualification Error",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3840,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+            "error_code": "",
+            "error_message": "",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "contact_resolved",
+            "node_name": "Resolve Contact ID",
+            "request_id": "={{ $('Validate Lead Qualification').item.json.request_id }}",
+            "retryable": false,
+            "severity": "info",
+            "status": "success",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "crm"
+          }
+        },
+        "options": {}
+      },
+      "id": "6b434398-3957-4954-b0c8-449a09e29e29",
+      "name": "Log CRM Success",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        6464,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+            "error_code": "={{ $json.email_sent ? '' : 'EMAIL_SEND_FAILED' }}",
+            "error_message": "={{ $json.email_sent ? '' : 'High lead follow-up email failed after retries; idempotency guard prevents duplicate send on future retries.' }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "high_lead_email",
+            "node_name": "Send High Lead Email",
+            "request_id": "={{ $('Validate Lead Qualification').item.json.request_id }}",
+            "retryable": "={{ !$json.email_sent }}",
+            "severity": "={{ $json.email_sent ? 'info' : 'warning' }}",
+            "status": "={{ $json.email_sent ? 'success' : 'failure' }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "customer_followup_email"
+          }
+        },
+        "options": {}
+      },
+      "id": "1bbee34f-f2ed-4c66-84a4-1faa82e1ce9e",
+      "name": "Log High Lead Email",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        8560,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+            "error_code": "={{ $json.email_sent ? '' : 'EMAIL_SEND_FAILED' }}",
+            "error_message": "={{ $json.email_sent ? '' : 'Medium lead follow-up email failed after retries; idempotency guard prevents duplicate send on future retries.' }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "medium_lead_email",
+            "node_name": "Send Medium Lead Email",
+            "request_id": "={{ $('Validate Lead Qualification').item.json.request_id }}",
+            "retryable": "={{ !$json.email_sent }}",
+            "severity": "={{ $json.email_sent ? 'info' : 'warning' }}",
+            "status": "={{ $json.email_sent ? 'success' : 'failure' }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "customer_followup_email"
+          }
+        },
+        "options": {}
+      },
+      "id": "4602fd5e-aab2-4dbf-bef0-e4f74bc7623f",
+      "name": "Log Medium Lead Email",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        7504,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+            "error_code": "={{ $json.email_sent ? '' : 'EMAIL_SEND_FAILED' }}",
+            "error_message": "={{ $json.email_sent ? '' : 'Low lead acknowledgement email failed after retries; idempotency guard prevents duplicate send on future retries.' }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "low_lead_email",
+            "node_name": "Send Low Lead Email",
+            "request_id": "={{ $('Validate Lead Qualification').item.json.request_id }}",
+            "retryable": "={{ !$json.email_sent }}",
+            "severity": "={{ $json.email_sent ? 'info' : 'warning' }}",
+            "status": "={{ $json.email_sent ? 'success' : 'failure' }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "customer_followup_email"
+          }
+        },
+        "options": {}
+      },
+      "id": "94c50ba6-7fa6-4a58-bba9-bca2b4f343bd",
+      "name": "Log Low Lead Email",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        7504,
+        992
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $('Validate Lead Qualification').item.json.email }}",
+            "error_code": "={{ $json.sales_alert_sent ? '' : 'EMAIL_SEND_FAILED' }}",
+            "error_message": "={{ $json.sales_alert_sent ? '' : 'Internal HIGH-lead sales alert failed after retries; idempotency guard prevents duplicate send on future retries.' }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "high_lead_internal_alert",
+            "node_name": "Send Internal Sales Alert",
+            "request_id": "={{ $('Validate Lead Qualification').item.json.request_id }}",
+            "retryable": "={{ !$json.sales_alert_sent }}",
+            "severity": "={{ $json.sales_alert_sent ? 'info' : 'warning' }}",
+            "status": "={{ $json.sales_alert_sent ? 'success' : 'failure' }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "sales_alert"
+          }
+        },
+        "options": {}
+      },
+      "id": "d066face-5b0b-4b26-8be8-186d84c1ba6e",
+      "name": "Log Sales Alert",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        10304,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $('Normalize Support Query').item.json.email }}",
+            "error_code": "={{ $json.retrieval_ok ? '' : 'RETRIEVAL_NO_RESULTS' }}",
+            "error_message": "={{ $json.retrieval_ok ? '' : 'No usable knowledge base context retrieved (empty result or retrieval error).' }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "kb_retrieval",
+            "node_name": "Pinecone Retrieval",
+            "request_id": "={{ $('Normalize Support Query').item.json.request_id }}",
+            "retryable": "={{ !$json.retrieval_ok }}",
+            "severity": "={{ $json.retrieval_ok ? 'info' : 'warning' }}",
+            "status": "={{ $json.retrieval_ok ? 'success' : 'failure' }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "support_retrieval"
+          }
+        },
+        "options": {}
+      },
+      "id": "56dcf68f-73ec-43de-abf2-996dae9f8123",
+      "name": "Log Support Retrieval",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4304,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $('Normalize Support Query').item.json.email }}",
+            "error_code": "={{ $json.malformed_ai_output ? 'MALFORMED_AI_OUTPUT' : '' }}",
+            "error_message": "={{ $json.malformed_ai_output ? 'RAG generation output could not be parsed or was empty; routed to human handoff.' : '' }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "rag_answer_generated",
+            "node_name": "Groq RAG Generation",
+            "request_id": "={{ $('Normalize Support Query').item.json.request_id }}",
+            "retryable": false,
+            "severity": "={{ $json.malformed_ai_output ? 'warning' : 'info' }}",
+            "status": "={{ $json.malformed_ai_output ? 'failure' : 'success' }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "support_generation"
+          }
+        },
+        "options": {}
+      },
+      "id": "ee33c66e-bd7f-44e4-a149-f7c27c5c8d85",
+      "name": "Log Support Generation Success",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4800,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $('Normalize Support Query').item.json.email }}",
+            "error_code": "AI_AGENT_ERROR",
+            "error_message": "Groq RAG generation agent execution failed after retries; routed to human handoff.",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "rag_generation_failed",
+            "node_name": "Groq RAG Generation",
+            "request_id": "={{ $('Normalize Support Query').item.json.request_id }}",
+            "retryable": false,
+            "severity": "error",
+            "status": "failure",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "support_generation"
+          }
+        },
+        "options": {}
+      },
+      "id": "8f58d42d-81ac-4ef5-8e98-b70276589076",
+      "name": "Log Support Generation Error",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4800,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $json.email }}",
+            "error_code": "={{ (($json.resolution_path === 'auto_response') ? $json.support_response_sent : $json.support_handoff_alert_sent) ? '' : 'EMAIL_SEND_FAILED' }}",
+            "error_message": "={{ (($json.resolution_path === 'auto_response') ? $json.support_response_sent : $json.support_handoff_alert_sent) ? '' : 'Support delivery email failed after retries; idempotency guard prevents duplicate send on future retries.' }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "={{ $json.resolution_path }}",
+            "node_name": "={{ $json.resolution_path === 'auto_response' ? 'Send Support Answer Email' : 'Send Internal Support Handoff Alert' }}",
+            "request_id": "={{ $json.request_id }}",
+            "retryable": "={{ !(($json.resolution_path === 'auto_response') ? $json.support_response_sent : $json.support_handoff_alert_sent) }}",
+            "severity": "={{ (($json.resolution_path === 'auto_response') ? $json.support_response_sent : $json.support_handoff_alert_sent) ? 'info' : 'warning' }}",
+            "status": "={{ $json.resolution_path === 'auto_response' ? ($json.support_response_sent ? 'success' : 'failure') : ($json.support_handoff_alert_sent ? 'success' : 'failure') }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "support_delivery"
+          }
+        },
+        "options": {}
+      },
+      "id": "ac15e624-e64a-46b7-a72d-a9df8e6e58b7",
+      "name": "Log Support Delivery",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        7552,
+        1408
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const validated = $('Validate Lead Qualification').item.json;\nconst err = $json || {};\nconst rawError = (err.error && typeof err.error === 'object') ? err.error : err;\n\nlet httpCode = rawError.httpCode || rawError.statusCode || rawError.status || (err.error && err.error.httpCode) || null;\nif (typeof httpCode === 'string') { const n = parseInt(httpCode, 10); httpCode = Number.isNaN(n) ? null : n; }\n\nconst rawMessage = typeof rawError.message === 'string' ? rawError.message : 'CRM/API call failed.';\nconst isNetworkTransient = /ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|timed?\\s*out|timeout|network error|socket hang up/i.test(rawMessage);\n\nconst RETRYABLE_CODES = [429, 500, 502, 503, 504];\nconst NONRETRYABLE_CODES = [400, 401, 403];\n\nlet retryable = false;\nlet error_code;\nif (httpCode && RETRYABLE_CODES.includes(httpCode)) { retryable = true; error_code = 'HTTP_' + httpCode; }\nelse if (httpCode && NONRETRYABLE_CODES.includes(httpCode)) { retryable = false; error_code = 'HTTP_' + httpCode; }\nelse if (isNetworkTransient) { retryable = true; error_code = 'NETWORK_TIMEOUT'; }\nelse { retryable = false; error_code = httpCode ? ('HTTP_' + httpCode) : 'CRM_CALL_FAILED'; }\n\nlet sanitized = rawMessage.replace(/https?:\\/\\/\\S+/g, '[url]');\nsanitized = sanitized.replace(/(key|token|secret|authorization|bearer|api[_-]?key)\\s*[:=]\\s*\\S+/gi, '$1=[redacted]');\nconst error_message = sanitized.slice(0, 300);\n\nreturn {\n  json: {\n    request_id: validated.request_id,\n    email: validated.email,\n    error_code: error_code,\n    error_message: error_message,\n    retryable: retryable,\n    severity: 'error'\n  }\n};"
+      },
+      "id": "627d01ed-3ffe-4632-b8d3-f1a76bcc122b",
+      "name": "Handle CRM Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6464,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "automation_event_log",
+          "mode": "id",
+          "value": "3v7uTPQDEoEgInl8"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempt": 1,
+            "email": "={{ $json.email }}",
+            "error_code": "={{ $json.error_code }}",
+            "error_message": "={{ $json.error_message }}",
+            "event_id": "={{ Date.now().toString(36)+'_'+Math.random().toString(36).substring(2,8) }}",
+            "event_type": "crm_failure",
+            "node_name": "HighLevel CRM branch",
+            "request_id": "={{ $json.request_id }}",
+            "retryable": "={{ $json.retryable }}",
+            "severity": "={{ $json.severity }}",
+            "status": "failure",
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_area": "crm"
+          }
+        },
+        "options": {}
+      },
+      "id": "aa5d267b-0f30-42a5-92b4-ab9e75ccd02d",
+      "name": "Log CRM Failure",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        6704,
+        1152
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize and Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize and Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Check Valid Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Valid Input": {
+      "main": [
+        [
+          {
+            "node": "Compute Idempotency Key",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Intake Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Idempotency Key": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Has Duplicate Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Duplicate Record": {
+      "main": [
+        [
+          {
+            "node": "Build Duplicate Response Body",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Not Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Duplicate Response Body": {
+      "main": [
+        [
+          {
+            "node": "Respond Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Not Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Record New Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record New Intake": {
+      "main": [
+        [
+          {
+            "node": "AI Intent Classification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Intake Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Classification Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Intent Classification",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classification Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Intent Classification",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Intent Classification": {
+      "main": [
+        [
+          {
+            "node": "Validate Classification Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Classification Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Classification Output": {
+      "main": [
+        [
+          {
+            "node": "Route by Intent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Intent Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Classification Error": {
+      "main": [
+        [
+          {
+            "node": "Route by Intent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Intent Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Intent": {
+      "main": [
+        [
+          {
+            "node": "AI Lead Qualification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Support Query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond General",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unknown",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unknown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Lead Qualification Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Lead Qualification",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Lead Qualification": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead Qualification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Lead Qualification Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Lead Qualification": {
+      "main": [
+        [
+          {
+            "node": "Route by Lead Category",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Sales Qualification Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Lead Qualification Error": {
+      "main": [
+        [
+          {
+            "node": "Route by Lead Category",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Sales Qualification Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Lead Category": {
+      "main": [
+        [
+          {
+            "node": "Search Contact By Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search Contact By Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search Contact By Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Lead Review Required",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Contact By Email": {
+      "main": [
+        [
+          {
+            "node": "Extract Candidate IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle CRM Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Candidate IDs": {
+      "main": [
+        [
+          {
+            "node": "Has Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Candidates": {
+      "main": [
+        [
+          {
+            "node": "Get Candidate Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Candidates Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Candidate Contact": {
+      "main": [
+        [
+          {
+            "node": "Resolve Exact Match",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle CRM Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Exact Match": {
+      "main": [
+        [
+          {
+            "node": "Has Existing Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Candidates Found": {
+      "main": [
+        [
+          {
+            "node": "Has Existing Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Existing Contact": {
+      "main": [
+        [
+          {
+            "node": "Update Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Contact": {
+      "main": [
+        [
+          {
+            "node": "Resolve Contact ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle CRM Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Contact": {
+      "main": [
+        [
+          {
+            "node": "Resolve Contact ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle CRM Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Contact ID": {
+      "main": [
+        [
+          {
+            "node": "Route CRM Result by Category",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log CRM Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route CRM Result by Category": {
+      "main": [
+        [
+          {
+            "node": "Check Existing Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Medium Lead CRM Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Low Lead CRM Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Lead Review Required",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Existing Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Match Opportunity By Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle CRM Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Opportunity By Contact": {
+      "main": [
+        [
+          {
+            "node": "Has Existing Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Existing Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Prepare High Lead CRM Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Prepare High Lead CRM Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle CRM Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send High Lead Email": {
+      "main": [
+        [
+          {
+            "node": "Was High Email Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Medium Lead Email": {
+      "main": [
+        [
+          {
+            "node": "Was Medium Email Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Medium Lead Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Medium Lead",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Medium Lead Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Low Lead Email": {
+      "main": [
+        [
+          {
+            "node": "Was Low Email Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Low Lead Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Low Lead",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Low Lead Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare High Lead CRM Response": {
+      "main": [
+        [
+          {
+            "node": "Compute High Email Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute High Email Key": {
+      "main": [
+        [
+          {
+            "node": "Check High Email Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check High Email Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Has High Email Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has High Email Record": {
+      "main": [
+        [
+          {
+            "node": "Mark Already Sent High",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send High Lead Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was High Email Sent": {
+      "main": [
+        [
+          {
+            "node": "Record High Email Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failed High",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record High Email Sent": {
+      "main": [
+        [
+          {
+            "node": "Mark Sent High",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Already Sent High": {
+      "main": [
+        [
+          {
+            "node": "Finalize High Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Sent High": {
+      "main": [
+        [
+          {
+            "node": "Finalize High Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Failed High": {
+      "main": [
+        [
+          {
+            "node": "Finalize High Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Medium Lead CRM Response": {
+      "main": [
+        [
+          {
+            "node": "Compute Medium Email Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Medium Email Key": {
+      "main": [
+        [
+          {
+            "node": "Check Medium Email Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Medium Email Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Has Medium Email Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Medium Email Record": {
+      "main": [
+        [
+          {
+            "node": "Mark Already Sent Medium",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Medium Lead Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was Medium Email Sent": {
+      "main": [
+        [
+          {
+            "node": "Record Medium Email Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failed Medium",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Medium Email Sent": {
+      "main": [
+        [
+          {
+            "node": "Mark Sent Medium",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Already Sent Medium": {
+      "main": [
+        [
+          {
+            "node": "Finalize Medium Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Sent Medium": {
+      "main": [
+        [
+          {
+            "node": "Finalize Medium Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Failed Medium": {
+      "main": [
+        [
+          {
+            "node": "Finalize Medium Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Low Lead CRM Response": {
+      "main": [
+        [
+          {
+            "node": "Compute Low Email Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Low Email Key": {
+      "main": [
+        [
+          {
+            "node": "Check Low Email Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Low Email Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Has Low Email Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Low Email Record": {
+      "main": [
+        [
+          {
+            "node": "Mark Already Sent Low",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Low Lead Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was Low Email Sent": {
+      "main": [
+        [
+          {
+            "node": "Record Low Email Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failed Low",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Low Email Sent": {
+      "main": [
+        [
+          {
+            "node": "Mark Sent Low",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Already Sent Low": {
+      "main": [
+        [
+          {
+            "node": "Finalize Low Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Sent Low": {
+      "main": [
+        [
+          {
+            "node": "Finalize Low Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Failed Low": {
+      "main": [
+        [
+          {
+            "node": "Finalize Low Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize High Lead Response": {
+      "main": [
+        [
+          {
+            "node": "Compute Sales Alert Key",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log High Lead Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Sales Alert Key": {
+      "main": [
+        [
+          {
+            "node": "Check Sales Alert Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Sales Alert Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Has Sales Alert Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Sales Alert Record": {
+      "main": [
+        [
+          {
+            "node": "Mark Sales Alert Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Internal Sales Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Internal Sales Alert": {
+      "main": [
+        [
+          {
+            "node": "Was Sales Alert Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was Sales Alert Sent": {
+      "main": [
+        [
+          {
+            "node": "Record Sales Alert Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Sales Alert Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Sales Alert Sent": {
+      "main": [
+        [
+          {
+            "node": "Mark Sales Alert Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Sales Alert Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Finalize HIGH Lead Response With Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Sales Alert Sent": {
+      "main": [
+        [
+          {
+            "node": "Finalize HIGH Lead Response With Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Sales Alert Failed": {
+      "main": [
+        [
+          {
+            "node": "Finalize HIGH Lead Response With Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize HIGH Lead Response With Alert": {
+      "main": [
+        [
+          {
+            "node": "Respond High Lead",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Sales Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Support Query": {
+      "main": [
+        [
+          {
+            "node": "Pinecone Retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Pinecone Retrieval",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pinecone Retrieval": {
+      "main": [
+        [
+          {
+            "node": "Validate Retrieved Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Retrieved Context": {
+      "main": [
+        [
+          {
+            "node": "Has Usable Context",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Support Retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Usable Context": {
+      "main": [
+        [
+          {
+            "node": "Groq RAG Generation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Generation No Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq RAG Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Groq RAG Generation",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq RAG Generation": {
+      "main": [
+        [
+          {
+            "node": "Validate RAG Answer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle RAG Generation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate RAG Answer": {
+      "main": [
+        [
+          {
+            "node": "Determine Support Resolution",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Support Generation Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle RAG Generation Error": {
+      "main": [
+        [
+          {
+            "node": "Determine Support Resolution",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Support Generation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Generation No Context": {
+      "main": [
+        [
+          {
+            "node": "Determine Support Resolution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Support Resolution": {
+      "main": [
+        [
+          {
+            "node": "Support Logging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support Logging": {
+      "main": [
+        [
+          {
+            "node": "Route by Resolution Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Resolution Path": {
+      "main": [
+        [
+          {
+            "node": "Compute Support Response Key",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compute Support Handoff Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Support Response Key": {
+      "main": [
+        [
+          {
+            "node": "Check Support Response Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Support Response Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Has Support Response Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Support Response Record": {
+      "main": [
+        [
+          {
+            "node": "Mark Support Response Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Support Answer Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Support Answer Email": {
+      "main": [
+        [
+          {
+            "node": "Was Support Email Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was Support Email Sent": {
+      "main": [
+        [
+          {
+            "node": "Record Support Response Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Support Response Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Support Response Sent": {
+      "main": [
+        [
+          {
+            "node": "Mark Support Response Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Support Response Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Finalize Support Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Support Response Sent": {
+      "main": [
+        [
+          {
+            "node": "Finalize Support Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Support Response Failed": {
+      "main": [
+        [
+          {
+            "node": "Finalize Support Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Support Handoff Key": {
+      "main": [
+        [
+          {
+            "node": "Check Support Handoff Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Support Handoff Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Has Support Handoff Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Support Handoff Record": {
+      "main": [
+        [
+          {
+            "node": "Mark Support Handoff Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Internal Support Handoff Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Internal Support Handoff Alert": {
+      "main": [
+        [
+          {
+            "node": "Was Support Handoff Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was Support Handoff Sent": {
+      "main": [
+        [
+          {
+            "node": "Record Support Handoff Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Support Handoff Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Support Handoff Sent": {
+      "main": [
+        [
+          {
+            "node": "Mark Support Handoff Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Support Handoff Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Finalize Support Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Support Handoff Sent": {
+      "main": [
+        [
+          {
+            "node": "Finalize Support Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Support Handoff Failed": {
+      "main": [
+        [
+          {
+            "node": "Finalize Support Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Support Delivery": {
+      "main": [
+        [
+          {
+            "node": "Respond Support",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Support Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle CRM Failure": {
+      "main": [
+        [
+          {
+            "node": "Log CRM Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log CRM Failure": {
+      "main": [
+        [
+          {
+            "node": "Respond Lead Review Required",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "149953ee-129c-494c-9968-8cc27093a851",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "7d3cad1334e8f5dc73b0754077c17f34a14ead5a76ba6f634ab86a00acc46355"
+  },
+  "nodeGroups": [],
+  "id": "aP9iUPUtNytuHy0M",
+  "tags": []
+}
