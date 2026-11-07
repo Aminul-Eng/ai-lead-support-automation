@@ -35,6 +35,29 @@ It demonstrates:
 
 > Client-specific credentials, business rules, CRM configuration, knowledge-base data, security review, and UAT are required before production deployment.
 
+## Project Architecture at a Glance
+
+![AI-Powered Lead & Customer Support Automation — Project Overview](07-project-overview.png)
+
+*Architecture overview of the intake, sales/CRM, RAG support, AI response gate, and reliability modules.*
+
+---
+
+## Quick Navigation
+
+- [Business Problem](#business-problem)
+- [Solution](#solution)
+- [Workflow Overview](#full-workflow-overview)
+- [Workflow Modules](#workflow-modules)
+- [RAG Safety & Human Handoff](#07--deterministic-grounding-gate)
+- [Reliability, Retry & Error Handling](#reliability--idempotency)
+- [Technology Stack](#technology-stack)
+- [DEV End-to-End Testing](#dev-end-to-end-testing)
+- [Installation & Setup](#installation--setup)
+- [Security & Privacy](#security--privacy)
+- [Known Limitations](#known-limitations)
+- [Production Deployment Checklist](#production-deployment-checklist)
+
 ---
 
 # Business Problem
@@ -119,6 +142,8 @@ Operational events are logged throughout the workflow for request-level traceabi
 ---
 
 # Full Workflow Overview
+
+The following diagrams are stored in the repository root and are embedded in the relevant sections below.
 
 ![Workflow Overview](00-workflow-overview.png)
 
@@ -419,7 +444,7 @@ resolution_path = human_handoff
 requires_human = true
 ```
 
-This prevents uncertain or unsupported AI answers from being automatically sent to customers.
+This is a heuristic response gate, not an independent proof that every cited claim is supported. In the current implementation, `grounded` and `confidence` are AI-supplied fields and `evidence_used` is checked for non-empty content; the evidence is not independently matched against the retrieved source passages. Treat this as a DEV control, and add source-level evidence verification plus adversarial prompt-injection testing before production use.
 
 ---
 
@@ -538,7 +563,7 @@ Logged
 Safe Review Response
 ```
 
-Sensitive technical details are not returned to the public caller.
+Error handling includes sanitization, but the webhook response nodes must be reviewed and minimized before public or production exposure. Return only an allowlisted response such as `status` and `request_id`; do not return the full internal `$json` object.
 
 ---
 
@@ -683,6 +708,7 @@ Insufficient Evidence
 | [`04-followup-sales-alerts.png`](04-followup-sales-alerts.png) | Follow-up and sales alerts |
 | [`05-support-rag.png`](05-support-rag.png) | RAG support pipeline |
 | [`06-human-handoff.png`](06-human-handoff.png) | Human handoff |
+| [`07-project-overview.png`](07-project-overview.png) | High-level project architecture infographic |
 
 ---
 
@@ -829,6 +855,14 @@ Before deploying for a real client:
 - [ ] Test known support questions
 - [ ] Test unsupported questions
 - [ ] Test human handoff
+- [ ] Configure webhook authentication (Header Auth or verified HMAC)
+- [ ] Add rate limiting and request-body size limits
+- [ ] Enforce input length limits and strict schema validation
+- [ ] Minimize webhook responses to allowlisted fields (`status`, `request_id`)
+- [ ] Independently verify RAG evidence against retrieved source passages
+- [ ] Add prompt-injection and abuse-case tests
+- [ ] Review CRM contact-update permissions and field-level overwrite rules
+- [ ] Define PII access controls and data-retention periods
 - [ ] Review security and privacy requirements
 - [ ] Complete client UAT
 - [ ] Activate production webhook
@@ -856,7 +890,7 @@ It should not contain:
 - Production secrets
 - Private knowledge-base documents
 
-Authentication should be configured through the target n8n credential store.
+The exported workflow is a sanitized DEV/portfolio template, not a production-secured endpoint. The webhook in this version does not enforce request authentication. Before activating it, configure webhook authentication (for example, n8n Header Auth or a verified HMAC signature), rate limiting, request-body size limits, strict input validation, and an appropriate allowed-origin policy where browser access is required. CORS is not a substitute for authentication.
 
 ---
 
@@ -889,6 +923,18 @@ The current DEV retrieval threshold is:
 ```
 
 This should be evaluated against each client's real knowledge base before production use.
+
+### Webhook Authentication and Response Minimization
+
+The current DEV webhook does not enforce request authentication. The response nodes also require a final review to ensure that internal fields are not returned to callers. Do not activate this export on a public endpoint until authentication, rate limiting, payload limits, and response allowlisting are implemented.
+
+### Independent RAG Evidence Verification
+
+The current gate checks the retrieval score and AI-generated fields (`grounded`, `confidence`, and non-empty `evidence_used`). It does not independently verify that each evidence item maps to an actual retrieved passage. This limitation must be addressed before relying on automatic customer-facing answers in production.
+
+### Input and Abuse Controls
+
+Apply explicit maximum lengths to fields such as `name` and `message`, enforce a request-body size limit, and add rate limiting. Email-format validation alone does not verify mailbox ownership.
 
 ---
 
@@ -938,7 +984,7 @@ Potential enhancements include:
 | Operational Logging | ✅ Complete |
 | Failure Handling | ✅ Complete |
 | DEV End-to-End Testing | ✅ Passed |
-| Public Export Sanitization | ✅ Complete |
+| Public Export Secret Sanitization | ✅ Complete |
 | Portfolio Screenshots | ✅ Complete |
 | Client Production Deployment | ⚙️ Client Configuration + UAT Required |
 
